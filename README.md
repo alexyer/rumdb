@@ -20,3 +20,6 @@ Blazing fast log-structured key-value storage based on Bitcask[1] whitepaper.
 - [] Hint files for the faster startup time.
 - [] Internal cache.
 - [] Alternative storage implementations (e.g. tree-based to support range scans)
+
+## References
+[1] [Bitcask: A Log-Structured Hash Table for Fast Key/Value Data](https://riak.com/assets/bitcask-intro.pdf)
