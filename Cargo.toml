@@ -1,10 +1,17 @@
 [package]
 name = "rumdb"
+license = "MIT"
 version = "0.1.0"
 edition = "2021"
 authors = ["Oleksandr Yermakov <olexander.yermakov@gmail.com>"]
+keywords = ["database", "persistence"]
+categories = ["database-implementations"]
+readme = "README.md"
+exclude = ["examples"]
+description = "Blazing fast key-value storage basec on Bitcask whitepaper"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[badges]
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 chrono = "0.4"
