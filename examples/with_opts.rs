@@ -1,7 +1,9 @@
-use rumdb::{storage::Storage, RumDb};
+use rumdb::{storage::Storage, DbOptions, RumDb};
 
 fn main() {
-    let mut db = RumDb::open_default("/tmp/basic.rumdb/").unwrap();
+    let opts = DbOptions::default().max_log_file_size(10);
+
+    let mut db = RumDb::open("/tmp/with_opts.rumdb/", opts).unwrap();
     println!("{:?}", db);
 
     db.put(b"hello".to_vec(), b"world".to_vec()).unwrap();

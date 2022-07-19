@@ -17,4 +17,7 @@ pub enum StorageError {
 
     #[error("db is already locked")]
     AlreadyLocked,
+
+    #[error("unknown log file: {0}.rumdb.log")]
+    UnknownLogFile(u32),
 }
