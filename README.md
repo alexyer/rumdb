@@ -16,7 +16,8 @@ Blazing fast log-structured key-value storage based on Bitcask[1] whitepaper.
 - [x] Disk storage with hash map keydir structure
 - [x] GET/PUT/REMOVE operations
 - [x] Log files rotation
-- [ ] Compaction and garbage collection
+- [x] Garbage Collection
+- [ ] Compaction
 - [ ] Hint files for the faster startup time.
 - [ ] Internal cache.
 - [ ] Alternative storage implementations (e.g. tree-based to support range scans)

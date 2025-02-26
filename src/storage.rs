@@ -2,6 +2,7 @@
 
 use std::{
     collections::BTreeMap,
+    fmt::Display,
     fs::{self, File, OpenOptions},
     io::{self, Read, Seek, SeekFrom, Write},
     os::unix::prelude::FileExt,
@@ -9,10 +10,10 @@ use std::{
 };
 
 use crate::{
-    errors::StorageError,
-    format::{DiskEntry, Header, KeydirEntry, HEADER_SIZE},
-    keydir::{Keydir, KeydirDefault},
     DbOptions,
+    errors::StorageError,
+    format::{DiskEntry, HEADER_SIZE, Header, KeydirEntry},
+    keydir::{Keydir, KeydirDefault},
 };
 
 /// Storge trait.
@@ -27,6 +28,89 @@ pub trait Storage {
     fn remove(&mut self, k: &[u8]) -> Result<(), StorageError>;
 }
 
+/// Storage Event.
+enum StorageEvent {
+    KeydirPut {
+        new_log_id: u32,
+        old_log_id: Option<u32>,
+    },
+}
+
+/// Disk storage stats.
+#[derive(Debug, Default)]
+pub struct DiskStorageStats {
+    /// The number of up-to-date key entries by log.
+    alive_log_keys: BTreeMap<u32, usize>,
+}
+
+impl Display for DiskStorageStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Disk Storage Stats:")?;
+
+        for (log_id, keys_alive) in self.alive_log_keys.iter() {
+            f.write_str(&format!("\n    * log #{log_id}: {keys_alive} keys alive"))?;
+        }
+
+        Ok(())
+    }
+}
+
+impl DiskStorageStats {
+    fn handle_storage_event(&mut self, event: StorageEvent) {
+        match event {
+            StorageEvent::KeydirPut {
+                new_log_id,
+                old_log_id,
+            } => {
+                if let Some(old_file_id) = old_log_id {
+                    if new_log_id != old_file_id {
+                        self.inc_alive_log_count(new_log_id);
+                        self.dec_alive_log_count(old_file_id);
+                    }
+                } else {
+                    self.inc_alive_log_count(new_log_id);
+                }
+            }
+        }
+    }
+    fn inc_alive_log_count(&mut self, log_id: u32) {
+        self.alive_log_keys
+            .entry(log_id)
+            .and_modify(|l| *l += 1)
+            .or_insert(1);
+    }
+
+    fn dec_alive_log_count(&mut self, log_id: u32) {
+        self.alive_log_keys.entry(log_id).and_modify(|l| *l -= 1);
+    }
+
+    fn new_log_entry(&mut self, log_id: u32) {
+        assert!(!self.alive_log_keys.contains_key(&log_id));
+        self.alive_log_keys.entry(log_id).or_default();
+    }
+
+    fn stale_log_entries(&self) -> Vec<u32> {
+        self.alive_log_keys
+            .iter()
+            .rev()
+            .skip(1)
+            .filter_map(|(log_id, entries_alive)| {
+                if *entries_alive == 0 {
+                    Some(*log_id)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn drop_log_entries<'a>(&mut self, entries: impl Iterator<Item = &'a u32>) {
+        for entry in entries {
+            self.alive_log_keys.remove(entry);
+        }
+    }
+}
+
 /// Disk storage.
 #[derive(Debug)]
 pub struct DiskStorage<K>
@@ -36,6 +120,7 @@ where
     keydir: K,
     /// Mapping between file id and actual file.
     log_files: BTreeMap<u32, File>,
+    storage_stats: DiskStorageStats,
 
     _lock: Lockfile,
 
@@ -66,24 +151,30 @@ where
 
         log::info!("🏗  Building keydir...");
 
-        let (keydir, log_files) = Self::build_keydir(path)?;
+        let (keydir, log_files, storage_stats) = Self::build_keydir(path)?;
 
         log::info!("🏗  Keydir has been built successfully");
 
-        Ok(Self {
+        let mut db = Self {
             path: path.to_path_buf(),
             keydir,
             log_files,
+            storage_stats,
             _lock: lock,
             opts,
-        })
+        };
+
+        db.gc()?;
+
+        Ok(db)
     }
 
-    fn build_keydir(path: &Path) -> Result<(K, BTreeMap<u32, File>), io::Error> {
+    fn build_keydir(path: &Path) -> Result<(K, BTreeMap<u32, File>, DiskStorageStats), io::Error> {
         let mut file_opts = OpenOptions::new();
         file_opts.read(true).write(true).create(true);
 
         let mut log_files = BTreeMap::new();
+        let mut storage_stats = DiskStorageStats::default();
 
         fs::read_dir(path)?
             .filter_map(Result::ok)
@@ -101,6 +192,11 @@ where
 
         for (file_id, log) in log_files.iter_mut() {
             Self::ingest_log(&mut keydir, *file_id, log)?;
+            storage_stats.new_log_entry(*file_id);
+        }
+
+        for (_, entry) in keydir.iter() {
+            storage_stats.inc_alive_log_count(entry.file_id);
         }
 
         if log_files.is_empty() {
@@ -110,7 +206,7 @@ where
             log_files.insert(0, file);
         }
 
-        Ok((keydir, log_files))
+        Ok((keydir, log_files, storage_stats))
     }
 
     fn ingest_log(keydir: &mut K, file_id: u32, log: &mut File) -> Result<(), io::Error> {
@@ -173,11 +269,35 @@ where
             self.log_files.insert(new_active_file_id, new_active_file);
         }
 
+        self.gc()?;
+
         Ok(())
     }
 
     fn format_log_file_name(file_id: u32) -> String {
         format!("{}.rumdb.log", file_id)
+    }
+
+    pub fn storage_stats(&self) -> &DiskStorageStats {
+        &self.storage_stats
+    }
+
+    /// Collect garbage.
+    ///
+    /// Removes logs without alive entries.
+    fn gc(&mut self) -> io::Result<()> {
+        let stale_logs = self.storage_stats.stale_log_entries();
+
+        for file_id in stale_logs.iter() {
+            self.log_files.remove(file_id);
+            std::fs::remove_file(self.path.join(Self::format_log_file_name(*file_id)))?;
+        }
+
+        self.storage_stats.drop_log_entries(stale_logs.iter());
+
+        log::info!("🧹 dropped {} stale log files", stale_logs.len());
+
+        Ok(())
     }
 }
 
@@ -228,7 +348,14 @@ where
 
         let keydir_entry = KeydirEntry::new(active_file_id, value_size, value_pos, timestamp);
 
-        self.keydir.put(k, keydir_entry);
+        let new_log_id = keydir_entry.file_id;
+        let old_log_id = self.keydir.put(k, keydir_entry).map(|e| e.file_id);
+
+        self.storage_stats
+            .handle_storage_event(StorageEvent::KeydirPut {
+                new_log_id,
+                old_log_id,
+            });
 
         Ok(())
     }
@@ -355,6 +482,30 @@ mod tests {
 
             let res = db.get(b"version").unwrap();
             assert_eq!(res, Some(vec![VERSION]));
+
+            assert_eq!(*db.storage_stats.alive_log_keys.get(&1).unwrap(), 1);
         }
+    }
+
+    #[test]
+    fn disk_storage_should_gc() {
+        const VERSION: u8 = 3;
+        let dir = tempdir::TempDir::new("disk-storage-test.db").unwrap();
+
+        {
+            let mut db: DiskStorage<HashmapKeydir> =
+                DiskStorage::open(dir.path(), DbOptions::default().max_log_file_size(50)).unwrap();
+
+            for i in 0..=VERSION {
+                db.put(b"version".to_vec(), vec![i]).unwrap();
+            }
+        }
+
+        assert!(
+            dir.path().join("1.rumdb.log").exists(),
+            "log file has not been rotated"
+        );
+
+        assert!(!dir.path().join("0.rumdb.log").exists(), "gc failed");
     }
 }

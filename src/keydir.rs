@@ -9,13 +9,19 @@ use crate::format::KeydirEntry;
 
 pub trait Keydir {
     /// Returns a reference to the corresponding entry.
-    fn get(&self, k: &[u8]) -> Option<&KeydirEntry>;
+    fn get(&self, k: impl AsRef<[u8]>) -> Option<&KeydirEntry>;
 
     /// Puts a key and entry into the Keydir.
-    fn put(&mut self, k: Vec<u8>, v: KeydirEntry);
+    ///
+    /// If keydir did not have this key present, None is returned.
+    /// If keydir did have this key present, the value is updated, and the old value is returned.
+    fn put(&mut self, k: Vec<u8>, v: KeydirEntry) -> Option<KeydirEntry>;
 
     /// Removes an entry from the Keydir.
-    fn remove(&mut self, k: &[u8]);
+    fn remove(&mut self, k: impl AsRef<[u8]>);
+
+    /// Iterates over all (key, entry) pairs in arbitrary order.
+    fn iter(&self) -> impl Iterator<Item = (impl AsRef<[u8]>, &KeydirEntry)>;
 }
 
 pub trait KeydirDefault: Default {}
@@ -27,16 +33,20 @@ pub struct HashmapKeydir {
 }
 
 impl Keydir for HashmapKeydir {
-    fn get(&self, key: &[u8]) -> Option<&KeydirEntry> {
-        self.mapping.get(key)
+    fn get(&self, key: impl AsRef<[u8]>) -> Option<&KeydirEntry> {
+        self.mapping.get(key.as_ref())
     }
 
-    fn put(&mut self, k: Vec<u8>, v: KeydirEntry) {
-        self.mapping.insert(k, v);
+    fn put(&mut self, k: Vec<u8>, v: KeydirEntry) -> Option<KeydirEntry> {
+        self.mapping.insert(k, v)
     }
 
-    fn remove(&mut self, k: &[u8]) {
-        self.mapping.remove(k);
+    fn remove(&mut self, k: impl AsRef<[u8]>) {
+        self.mapping.remove(k.as_ref());
+    }
+
+    fn iter(&self) -> impl Iterator<Item = (impl AsRef<[u8]>, &KeydirEntry)> {
+        self.mapping.iter()
     }
 }
 
