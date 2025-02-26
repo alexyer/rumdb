@@ -137,9 +137,9 @@ mod tests {
     }
 
     fn random_header() -> Header {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
-        Header::new(rng.gen(), rng.gen(), rng.gen())
+        Header::new(rng.random(), rng.random(), rng.random())
     }
 
     #[test]

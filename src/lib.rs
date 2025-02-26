@@ -1,5 +1,3 @@
-#![feature(map_first_last)]
-
 use keydir::HashmapKeydir;
 use storage::DiskStorage;
 

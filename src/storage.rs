@@ -189,7 +189,7 @@ where
         let res = match self.keydir.get(k) {
             Some(keydir_entry) => {
                 let file_id = keydir_entry.file_id;
-                let mut buf = vec![0; keydir_entry.value_size as usize];
+                let mut buf = vec![0; keydir_entry.value_size];
 
                 let file = self
                     .log_files
@@ -216,9 +216,9 @@ where
         let active_file_id = *active_file_entry.key();
         let active_file = active_file_entry.get_mut();
 
-        active_file.write(disk_entry.header.as_slice())?;
-        active_file.write(disk_entry.key.as_slice())?;
-        active_file.write(disk_entry.value.as_slice())?;
+        active_file.write_all(disk_entry.header.as_slice())?;
+        active_file.write_all(disk_entry.key.as_slice())?;
+        active_file.write_all(disk_entry.value.as_slice())?;
 
         let pos = active_file.stream_position()?;
         let value_size = disk_entry.header.value_size();

@@ -1,8 +1,8 @@
 [package]
 name = "rumdb"
 license = "MIT"
-version = "0.2.0"
-edition = "2021"
+version = "0.2.1"
+edition = "2024"
 authors = ["Oleksandr Yermakov <olexander.yermakov@gmail.com>"]
 keywords = ["database", "persistence"]
 categories = ["database-implementations"]
@@ -16,8 +16,8 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 chrono = "0.4"
 log = "0.4"
-thiserror = "1.0"
+thiserror = "2.0"
 
 [dev-dependencies]
 tempdir = "0.3"
-rand = "0.8.5"
+rand = "0.9"
